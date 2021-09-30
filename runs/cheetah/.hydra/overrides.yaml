@@ -1,0 +1,3 @@
+- env=cheetah_run
+- num_expl_steps=125000
+- num_train_steps=250000
