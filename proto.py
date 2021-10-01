@@ -9,6 +9,7 @@ import math
 import utils
 import hydra
 import kornia
+from icm import IntrinsicCuriosityModule
 
 
 class Encoder(nn.Module):
@@ -92,10 +93,10 @@ class Critic(nn.Module):
 
         return q1, q2
 
-
+#TODO: i've made it such that we use proto rewards and don't use icm rewards by default. how to actually enable? 
 class Proto(nn.Module):
     def __init__(self, proj_dim, pred_dim, T, num_protos, num_iters, topk,
-                 queue_size):
+                 queue_size, use_proto=True, use_icm=False):
         super().__init__()
 
         self.predictor = nn.Sequential(nn.Linear(proj_dim,
@@ -106,6 +107,10 @@ class Proto(nn.Module):
         self.T = T
         self.topk = topk
         self.num_protos = num_protos
+
+        #TODO: actually init with correct dimensions
+        if use_icm:
+            self.icm = IntrinsicCuriosityModule
 
         self.protos = nn.Linear(proj_dim, num_protos, bias=False)
         # candidate queue
@@ -161,6 +166,18 @@ class Proto(nn.Module):
         z_to_q = torch.norm(z[:, None, :] - self.queue[None, :, :], dim=2, p=2)
         d, _ = torch.topk(z_to_q, self.topk, dim=1, largest=False)
         reward = d[:, -1:]
+
+        #TODO: use ICM on the correct object; right now this is pseudocode
+        #TODO: enable ICM creation through hydra
+        if self.icm:
+            pred_logits, pred_phi, phi = local_icm(state, next_state, action_oh)
+            inv_loss = inv_criterion(pred_logits, torch.tensor([action]).cuda())
+            fwd_loss = fwd_criterion(pred_phi, phi) / 2
+            intrinsic_reward = opt.eta * fwd_loss.detach()
+            if self.proto:
+                reward += intrinsic_reward
+            else:
+                reward = intrinsic_reward
         return reward
 
     def sinkhorn(self, scores):
@@ -193,7 +210,8 @@ class ProtoAgent(object):
                  init_temperature, lr, actor_update_frequency,
                  critic_target_tau, critic_target_update_frequency,
                  encoder_target_tau, encoder_update_frequency, batch_size,
-                 task_agnostic, intr_coef, num_seed_steps):
+                 task_agnostic, intr_coef, num_seed_steps, icm=None):
+
         self.action_range = action_range
         self.device = device
         self.discount = discount
@@ -238,6 +256,7 @@ class ProtoAgent(object):
         self.train()
         self.critic_target.train()
         self.encoder_target.train()
+        self.icm.train()
 
     def init_optimizers(self, lr):
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=lr)

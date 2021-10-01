@@ -16,6 +16,7 @@ import utils
 from logger import Logger
 from replay_buffer import ReplayBuffer
 from video import VideoRecorder
+from icm import IntrinsicCuriosityModule
 
 torch.backends.cudnn.benchmark = True
 
