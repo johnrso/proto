@@ -62,8 +62,7 @@ class Actor(nn.Module):
         # constrain log_std inside [log_std_min, log_std_max]
         log_std = torch.tanh(log_std)
         log_std_min, log_std_max = self.log_std_bounds
-        log_std = log_std_min + 0.5 * (log_std_max - log_std_min) * (log_std +
-                                                                     1)
+        log_std = log_std_min + 0.5 * (log_std_max - log_std_min) * (log_std + 1)
         std = log_std.exp()
 
         dist = utils.SquashedNormal(mu, std)
@@ -77,10 +76,8 @@ class Critic(nn.Module):
 
         self.pre_fc = nn.Sequential(nn.Linear(repr_dim, feature_dim),
                                     nn.LayerNorm(feature_dim))
-        self.Q1 = utils.mlp(feature_dim + action_shape[0], hidden_dim, 1,
-                            hidden_depth)
-        self.Q2 = utils.mlp(feature_dim + action_shape[0], hidden_dim, 1,
-                            hidden_depth)
+        self.Q1 = utils.mlp(feature_dim + action_shape[0], hidden_dim, 1, hidden_depth)
+        self.Q2 = utils.mlp(feature_dim + action_shape[0], hidden_dim, 1, hidden_depth)
 
         self.apply(utils.weight_init)
 
@@ -93,10 +90,9 @@ class Critic(nn.Module):
 
         return q1, q2
 
-#TODO: i've made it such that we use proto rewards and don't use icm rewards by default. how to actually enable? 
 class Proto(nn.Module):
     def __init__(self, proj_dim, pred_dim, T, num_protos, num_iters, topk,
-                 queue_size, use_proto=True, use_icm=False):
+                 queue_size, use_proto=True, use_icm=False, action_shape=None):
         super().__init__()
 
         self.predictor = nn.Sequential(nn.Linear(proj_dim,
@@ -110,7 +106,11 @@ class Proto(nn.Module):
 
         #TODO: actually init with correct dimensions
         if use_icm:
-            self.icm = IntrinsicCuriosityModule
+            self.icm = IntrinsicCuriosityModule(proj_dim, action_shape[0])
+            self.inv_criterion = nn.CrossEntropyLoss()
+            self.fwd_criterion = nn.MSELoss()
+        else:
+            self.icm = None
 
         self.protos = nn.Linear(proj_dim, num_protos, bias=False)
         # candidate queue
@@ -141,7 +141,7 @@ class Proto(nn.Module):
         loss = -(q_t * log_p_s).sum(dim=1).mean()
         return loss
 
-    def compute_reward(self, z):
+    def compute_reward(self, z, z_prev=None, act=None):
         B = z.shape[0]
         Q = self.queue.shape[0]
         assert Q % self.num_protos == 0
@@ -152,6 +152,7 @@ class Proto(nn.Module):
         self.protos.weight.data.copy_(C)
 
         z = F.normalize(z, dim=1, p=2)
+        z_prev = F.normalize(z_prev, dim=1, p=2)
 
         scores = self.protos(z).T
         p = F.softmax(scores, dim=1)
@@ -170,10 +171,10 @@ class Proto(nn.Module):
         #TODO: use ICM on the correct object; right now this is pseudocode
         #TODO: enable ICM creation through hydra
         if self.icm:
-            pred_logits, pred_phi, phi = local_icm(state, next_state, action_oh)
-            inv_loss = inv_criterion(pred_logits, torch.tensor([action]).cuda())
-            fwd_loss = fwd_criterion(pred_phi, phi) / 2
-            intrinsic_reward = opt.eta * fwd_loss.detach()
+            pred_logits, pred_phi, phi = self.icm(z_prev, z, act)
+            inv_loss = self.inv_criterion(pred_logits, torch.tensor([action]).cuda())
+            fwd_loss = self.fwd_criterion(pred_phi, phi) / 2
+            intrinsic_reward = fwd_loss.detach()
             if self.proto:
                 reward += intrinsic_reward
             else:
@@ -210,7 +211,7 @@ class ProtoAgent(object):
                  init_temperature, lr, actor_update_frequency,
                  critic_target_tau, critic_target_update_frequency,
                  encoder_target_tau, encoder_update_frequency, batch_size,
-                 task_agnostic, intr_coef, num_seed_steps, icm=None):
+                 task_agnostic, intr_coef, num_seed_steps):
 
         self.action_range = action_range
         self.device = device
@@ -256,7 +257,6 @@ class ProtoAgent(object):
         self.train()
         self.critic_target.train()
         self.encoder_target.train()
-        self.icm.train()
 
     def init_optimizers(self, lr):
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=lr)
@@ -346,10 +346,14 @@ class ProtoAgent(object):
         loss.backward()
         self.proto_optimizer.step()
 
-    def compute_reward(self, next_obs, step):
+    def compute_reward(self, next_obs, step, obs=None, act=None):
         with torch.no_grad():
             y = self.encoder(next_obs)
-            reward = self.proto.compute_reward(y)
+            if obs is not None:
+                y_prev = self.encoder(obs)
+            else:
+                y_prev = None
+            reward = self.proto.compute_reward(y, y_prev, act)
         return reward
 
     def update(self, replay_buffer, step):
@@ -371,7 +375,7 @@ class ProtoAgent(object):
                                          self.encoder_target_tau)
 
         with torch.no_grad():
-            intr_reward = self.compute_reward(next_obs, step)
+            intr_reward = self.compute_reward(next_obs, step, obs, action)
 
         if self.task_agnostic:
             reward = intr_reward
