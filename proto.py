@@ -171,11 +171,9 @@ class Proto(nn.Module):
         d, _ = torch.topk(z_to_q, self.topk, dim=1, largest=False)
         reward = d[:, -1:]
 
-        #TODO: use ICM on the correct object; right now this is pseudocode
-        #TODO: enable ICM creation through hydra
         if self.icm:
             pred_logits, pred_phi, phi = self.icm(z_prev, z, act)
-            inv_loss = self.inv_criterion(pred_logits, torch.tensor(act).cuda())
+            inv_loss = self.inv_criterion(pred_logits, act)
             fwd_loss = self.fwd_criterion(pred_phi, phi) / 2
             intrinsic_reward = fwd_loss.detach()
             if self.use_proto:
@@ -184,6 +182,16 @@ class Proto(nn.Module):
             else:
                 reward = intrinsic_reward
         return reward
+
+    def icm_loss(self, z, z_next, act):
+        if not self.icm:
+            return None
+
+        pred_logits, pred_phi, phi = self.icm(z, z_next, act)
+        inv_loss = self.inv_criterion(pred_logits, act)
+        fwd_loss = self.fwd_criterion(pred_phi, phi) / 2
+
+        return inv_loss + fwd_loss
 
     def sinkhorn(self, scores):
         def remove_infs(x):
@@ -388,10 +396,19 @@ class ProtoAgent(object):
 
         # decouple representation
         with torch.no_grad():
+            z = self.encoder(obs)
+            z_next = self.encoder(next_obs)
             obs = self.encoder.encode(obs)
             next_obs = self.encoder.encode(next_obs)
 
         self.update_critic(obs, action, reward, next_obs, discount, step)
+        
+        icm_loss = self.proto.icm_loss(z, z_next, action)
+        
+        if icm_loss is not None:
+            self.proto_optimizer.zero_grad()
+            icm_loss.backward()
+            self.proto_optimizer.step()
 
         if step % self.actor_update_frequency == 0:
             self.update_actor_and_alpha(obs, step)
