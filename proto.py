@@ -105,9 +105,10 @@ class Proto(nn.Module):
         self.num_protos = num_protos
 
         #TODO: actually init with correct dimensions
+        self.use_proto = use_proto
         if use_icm:
             self.icm = IntrinsicCuriosityModule(proj_dim, action_shape[0])
-            self.inv_criterion = nn.CrossEntropyLoss()
+            self.inv_criterion = nn.MSELoss()
             self.fwd_criterion = nn.MSELoss()
         else:
             self.icm = None
@@ -172,10 +173,10 @@ class Proto(nn.Module):
         #TODO: enable ICM creation through hydra
         if self.icm:
             pred_logits, pred_phi, phi = self.icm(z_prev, z, act)
-            inv_loss = self.inv_criterion(pred_logits, torch.tensor([act]).cuda())
+            inv_loss = self.inv_criterion(pred_logits, torch.tensor(act).cuda())
             fwd_loss = self.fwd_criterion(pred_phi, phi) / 2
             intrinsic_reward = fwd_loss.detach()
-            if self.proto:
+            if self.use_proto:
                 reward += intrinsic_reward
             else:
                 reward = intrinsic_reward
