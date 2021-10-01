@@ -172,7 +172,7 @@ class Proto(nn.Module):
         #TODO: enable ICM creation through hydra
         if self.icm:
             pred_logits, pred_phi, phi = self.icm(z_prev, z, act)
-            inv_loss = self.inv_criterion(pred_logits, torch.tensor([action]).cuda())
+            inv_loss = self.inv_criterion(pred_logits, torch.tensor([act]).cuda())
             fwd_loss = self.fwd_criterion(pred_phi, phi) / 2
             intrinsic_reward = fwd_loss.detach()
             if self.proto:
