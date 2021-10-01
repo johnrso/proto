@@ -113,6 +113,8 @@ class Proto(nn.Module):
         else:
             self.icm = None
 
+        self.use_proto = use_proto
+
         self.protos = nn.Linear(proj_dim, num_protos, bias=False)
         # candidate queue
         self.register_buffer('queue', torch.zeros(queue_size, proj_dim))
@@ -177,6 +179,7 @@ class Proto(nn.Module):
             fwd_loss = self.fwd_criterion(pred_phi, phi) / 2
             intrinsic_reward = fwd_loss.detach()
             if self.use_proto:
+
                 reward += intrinsic_reward
             else:
                 reward = intrinsic_reward
