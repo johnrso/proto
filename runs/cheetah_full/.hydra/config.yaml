@@ -1,0 +1,80 @@
+action_repeat: 2
+actor:
+  class: proto.Actor
+  params:
+    action_shape: ${agent.params.action_shape}
+    feature_dim: 50
+    hidden_depth: 2
+    hidden_dim: 1024
+    log_std_bounds:
+    - -10
+    - 2
+    repr_dim: ???
+agent:
+  class: proto.ProtoAgent
+  name: proto_rl
+  params:
+    action_range: ???
+    action_shape: ???
+    actor_cfg: ${actor}
+    actor_update_frequency: 2
+    batch_size: 512
+    critic_cfg: ${critic}
+    critic_target_tau: 0.01
+    critic_target_update_frequency: 2
+    device: ${device}
+    discount: 0.99
+    encoder_cfg: ${encoder}
+    encoder_target_tau: 0.05
+    encoder_update_frequency: 2
+    init_temperature: 0.1
+    intr_coef: 0.2
+    lr: 0.0001
+    num_seed_steps: 1000
+    obs_shape: ???
+    proto_cfg: ${proto}
+    task_agnostic: ???
+critic:
+  class: proto.Critic
+  params:
+    action_shape: ${agent.params.action_shape}
+    feature_dim: 50
+    hidden_depth: 2
+    hidden_dim: 1024
+    repr_dim: ???
+device: cuda
+encoder:
+  class: proto.Encoder
+  params:
+    obs_shape: ${agent.params.obs_shape}
+    proj_dim: 128
+env: cheetah_run
+eval_frequency: 50000
+experiment: bench
+frame_stack: 3
+load_pretrained: false
+log_frequency_step: 10000
+log_save_tb: true
+num_eval_episodes: 10
+num_expl_steps: 250000
+num_random_steps: 1000
+num_train_steps: 500000
+pretrained_dir: none
+pretrained_step: 250000
+proto:
+  class: proto.Proto
+  params:
+    T: 0.1
+    num_iters: 3
+    num_protos: 512
+    pred_dim: 512
+    proj_dim: ${encoder.params.proj_dim}
+    queue_size: 2048
+    topk: 3
+replay_buffer_capacity: 100000
+save_buffer: false
+save_frequency: 10000
+save_model: false
+save_pixels: false
+save_video: true
+seed: 1
