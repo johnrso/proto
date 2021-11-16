@@ -9,6 +9,7 @@ dependencies:
   - pyparsing
   - jupyterlab
   - scikit-image
+  - conda-forge::pip=20.0.2
   - pip:
     - termcolor
     - git+git://github.com/deepmind/dm_control.git
